@@ -48,24 +48,20 @@ def run_r_analysis(r_code: str):
     script_path = os.path.join(DATA_WORKSPACE, script_name)
     
     # 注入 R 代码前的环境配置，确保稳定运行
-    r_prefix = (
-        '# 1. 强制使用清华镜像源，防止 Agent 抽风自动安装包时失败\n'
-        'options(repos = c(CRAN = "https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))\n'
-        'options(BioC_mirror = "https://mirrors.tuna.tsinghua.edu.cn/bioconductor")\n'
-        
-        '# 2. 环境诊断：把 R 找包的路径打印出来，方便Debug\n'
-        'cat("Current LibPaths: ", .libPaths(), "\\n")\n'
-        
-        '# 3. 路径适配：设置工作目录\n'
-        f'setwd("{DATA_WORKSPACE.replace(chr(92), "/")}")\n'
-        
-        '# 4. 抑制不必要的警告，让 Agent 输出更干净\n'
-        'options(warn = -1)\n'
-        'suppressMessages(library(methods))\n' # 基础包，防报错
-        
-        '# 5. 自动容错逻辑：如果包不存在，尝试加载（但不阻塞）\n'
-        'safe_load <- function(pkg) { if(!require(pkg, character.only=TRUE, quietly=TRUE)) { cat(paste0("MISSING_PKG: ", pkg, "\\n")) } }\n'
-    )
+    # 在 tools.py 的 R 环境初始化里加入
+    r_prefix = """
+    library(data.table)
+    # 定义一个安全的读取函数，如果是gz就解压，如果不是就直接读
+    smart_read <- function(file_path) {
+    if (grepl(".gz$", file_path)) {
+        out_file <- sub(".gz$", "", file_path)
+        # 显式解压到本地，方便用户查看
+        system(paste("gunzip -c", file_path, ">", out_file))
+        return(out_file)
+    }
+    return(file_path)
+    }
+    """
     injected_code = r_prefix + r_code
     
     with open(script_path, "w", encoding="utf-8") as f:
@@ -88,9 +84,6 @@ def run_r_analysis(r_code: str):
 
 
 def load_large_bio_data(file_path: str):
-    """
-    轻量级读取：只抓取元数据和前100行预览，绝不拖累内存
-    """
     # 自动补全路径
     full_path = os.path.join(DATA_WORKSPACE, file_path)
     
@@ -103,7 +96,7 @@ def load_large_bio_data(file_path: str):
         is_gz = full_path.endswith('.gz')
         opener = gzip.open if is_gz else open
 
-        # 1. 快速扫描
+        # 快速扫描
         with opener(full_path, 'rt', encoding='utf-8', errors='ignore') as f:
             for i, line in enumerate(f):
                 if line.startswith('!Sample_title'):
@@ -115,7 +108,7 @@ def load_large_bio_data(file_path: str):
                     break
                 if i > 1000: break
 
-        # 2. 仅读取前 100 行
+        # 仅读取前 100 行
         df_preview = pd.read_csv(
             full_path, 
             sep='\t', 
@@ -124,23 +117,31 @@ def load_large_bio_data(file_path: str):
             comment='!'
         )
 
-        # 3. 构造安全的情报汇总
+        # 构造安全的情报汇总
+        clean_characteristics = []
+        if metadata["characteristics"]:
+            # 取第一行分组信息，去掉每个元素前后的双引号
+            raw_char = metadata["characteristics"][0]
+            clean_char = [c.replace('"', '').strip() for c in raw_char]
+            clean_characteristics = clean_char
+
         summary = [
             f"✅ 文件识别成功: {file_path}",
             f"📊 矩阵预览: 共有 {len(df_preview.columns)} 列 (样本)",
-            f"🆔 样本 ID 示例: {', '.join(list(df_preview.columns[1:6]))}..."
+            f"🆔 样本 ID 示例: {', '.join([str(c).replace('"', '') for c in df_preview.columns[1:6]])}..."
         ]
 
-        if metadata["characteristics"]:
-            first_char = metadata["characteristics"][0]
-            sample_preview = first_char[:3] if len(first_char) >= 3 else first_char
-            summary.append(f"🔍 探测到分组线索: {sample_preview}...")
-            summary.append(f"💡 [指令]: 共有 {len(first_char)} 个样本分组信息。")
+        if clean_characteristics:
+            # 取前 3 个做预览，现在它们是干干净净的字符串了
+            sample_preview = clean_characteristics[:3]
+            summary.append(f"🔍 探测到分组线索: {', '.join(sample_preview)}...") # 用 join 变成纯文本
+            summary.append(f"💡 [指令]: 共有 {len(clean_characteristics)} 个样本分组信息。")
             summary.append("请你编写 R 脚本读取全量文件进行差异分析。")
         else:
             summary.append("⚠️ 未发现明确的分组特征，请尝试按样本标题分组。")
 
-        return "\n".join(summary)
+        # 最终返回前，再次确保整个字符串是安全的
+        return "\n".join(summary).replace('"', "'") 
 
     except Exception as e:
         return f"❌ 读取失败。原因: {str(e)}。"

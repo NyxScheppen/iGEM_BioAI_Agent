@@ -10,11 +10,6 @@ import re
 
 app = FastAPI()
 
-# 确保有个 data 文件夹，Agent 生成的图可以放在这里
-os.makedirs("data", exist_ok=True) 
-# 让 FastAPI 把这个文件夹变成可以通过网址访问的静态资源
-app.mount("/data", StaticFiles(directory="data"), name="data")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,55 +32,72 @@ app.mount("/files", StaticFiles(directory=DATA_WORKSPACE), name="files")
 class ChatRequest(BaseModel):
     messages: List[Dict[str, str]]  # 格式: [{"role": "user", "content": "..."}, ...]
 
-@app.post("/api/chat")   
-async def chat_endpoint(request: ChatRequest):   
-    try:   
-        standard_messages = []  
-        for msg in request.messages:  
-            safe_role = "assistant" if msg.get("role") == "ai" else "user"  
-            standard_messages.append({  
-                "role": safe_role,  
-                "content": str(msg.get("content", ""))  
+import re
+
+@app.post("/api/chat")     
+async def chat_endpoint(request: ChatRequest):     
+    try:     
+        standard_messages = []    
+        # 接收前端传来的历史记录，转换成 Agent 需要的格式  
+        for msg in request.messages:    
+            safe_role = "assistant" if msg.get("role") == "ai" else "user"    
+            standard_messages.append({    
+                "role": safe_role,    
+                "content": str(msg.get("content", ""))    
+            })    
+
+        # 跑 Agent  
+        answer = await run_bio_agent(standard_messages)     
+        
+        # 1. 强制转码，干掉可能引发崩溃的隐藏非法字符和不可见字符
+        answer = answer.encode('utf-8', 'ignore').decode('utf-8')
+        answer = answer.replace('\x00', '')  # 干掉 Null byte
+        
+        # 匹配所有常规生信文件后缀
+        all_files = re.findall(r'[\w\-]+\.(?:png|jpg|jpeg|csv|txt|rds|xlsx)', answer)  
+        unique_files = list(set(all_files))  
+    
+        file_list = []  
+        final_reply = answer  
+
+        # Markdown 替换
+        for f in unique_files:  
+            file_url = f"http://127.0.0.1:8000/files/{f}"  
+            ext = f.split('.')[-1].lower()  
+            is_image = ext in ['png', 'jpg', 'jpeg']
+            
+            # 1. 组装给右侧 Workbench 的文件列表
+            file_list.append({  
+                "url": file_url,  
+                "name": f,  
+                "type": "image" if is_image else "data"  
             })  
 
-        # 跑 Agent
-        answer = await run_bio_agent(standard_messages)   
-        
-        # 自动搜寻所有的图片文件名
-        image_names = re.findall(r'[\w\-]+\.(?:png|jpg|jpeg)', answer)
-        # 去重
-        image_names = list(set(image_names))
-        
-        # 构造给前端 Workbench 的文件列表
-        # 这里统一把路径指向挂载好的 /files 接口
-        file_list = []
-        for img in image_names:
-            # 如果 Agent 生成了图，它应该在 DATA_WORKSPACE 里
-            file_url = f"http://127.0.0.1:8000/files/{img}"
-            file_list.append({
-                "url": file_url,
-                "name": img,
-                "type": "image"
-            })
+            # 2. 替换左侧聊天框的文本（智能防套娃）
+            # 如果 AI 已经很听话地按 Prompt 输出了带 URL 的格式，就不再替换了
+            if file_url not in final_reply:
+                # 决定 Markdown 的长相
+                markdown_link = f"\n![{f}]({file_url})\n" if is_image else f"[{f}]({file_url})"
+                
+                # 先把 AI 可能会带的 "data/文件名" 这个前缀干掉，统一变成纯文件名
+                final_reply = final_reply.replace(f"data/{f}", f)
+                
+                # 再次确认：如果文本里有纯文件名，且不在 Markdown 括号里，才替换
+                # （直接 replace 最暴力有效，因为上面排除了 file_url 已经存在的情况）
+                final_reply = final_reply.replace(f, markdown_link)  
 
-        # 替换文本中的路径，让左边聊天框也能显示图
-        # 只要文本里提到这些图片名，就换成完整的 URL
-        final_reply = answer
-        for img in image_names:
-            final_reply = final_reply.replace(img, f"http://127.0.0.1:8000/files/{img}")
-            # 兼容下之前可能有的 data/ 前缀
-            final_reply = final_reply.replace(f"data/{img}", f"http://127.0.0.1:8000/files/{img}")
-
-        # 返回 reply 的同时，返回 files 数组
-        return {
-            "reply": final_reply, 
-            "files": file_list  # 喂给右边 Workbench
+        return {  
+            "reply": final_reply,   
+            "files": file_list  
         }  
         
-    except Exception as e:   
-        print(f"Error: {e}")   
-        return {"reply": f"服务器内部出错了: {str(e)}", "files": []}
+    except Exception as e:     
+        print(f"🔥 后端报错拦截: {e}") 
+        # 报错信息也要清洗，绝对不能带破坏 JSON 结构的未经处理的引号/换行
+        safe_error = str(e).replace('"', "'").replace('\n', ' ')
+        return {"reply": f"❌ 服务器开小差了: {safe_error}", "files": []}
 
+# 上传前端传来的文件
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
