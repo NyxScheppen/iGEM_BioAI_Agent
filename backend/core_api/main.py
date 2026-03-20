@@ -14,7 +14,6 @@ app = FastAPI()
 os.makedirs("data", exist_ok=True) 
 # 让 FastAPI 把这个文件夹变成可以通过网址访问的静态资源
 app.mount("/data", StaticFiles(directory="data"), name="data")
-# --------------------
 
 app.add_middleware(
     CORSMiddleware,

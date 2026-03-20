@@ -13,7 +13,7 @@ DATA_WORKSPACE = os.path.join(BASE_DIR, "data")
 if not os.path.exists(DATA_WORKSPACE):
     os.makedirs(DATA_WORKSPACE)
 
-# ———————— 工作函数 ——————————
+#工作函数
 
 def calculate_gc_content(sequence: str):
     """计算 DNA 序列的 GC 含量"""
