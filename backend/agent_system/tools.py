@@ -13,18 +13,16 @@ DATA_WORKSPACE = os.path.join(BASE_DIR, "data")
 if not os.path.exists(DATA_WORKSPACE):
     os.makedirs(DATA_WORKSPACE)
 
-# ==========================================
-# 1. 具体的工具函数定义
-# ==========================================
+# ———————— 工作函数 ——————————
 
 def calculate_gc_content(sequence: str):
-    """(工具1) 计算 DNA 序列的 GC 含量"""
+    """计算 DNA 序列的 GC 含量"""
     seq = sequence.upper()
     gc = (seq.count("G") + seq.count("C")) / len(seq) * 100 if len(seq) > 0 else 0
     return json.dumps({"gc_content_percentage": round(gc, 2)})
 
 def read_csv_data(file_path: str):
-    """(工具2) 读取 CSV 文件的表头和前 3 行"""
+    """读取 CSV 文件的表头和前 3 行"""
     file_name = os.path.basename(file_path)
     safe_path = os.path.join(DATA_WORKSPACE, file_name)
     
@@ -44,13 +42,12 @@ def read_csv_data(file_path: str):
 
 def run_r_analysis(r_code: str):
     
-    """(工具3) 接收 R 代码并在本地执行"""
+    """接收 R 代码并在本地执行"""
     job_id = str(uuid.uuid4())[:8]
     script_name = f"temp_task_{job_id}.R"
     script_path = os.path.join(DATA_WORKSPACE, script_name)
     
-    # 【优化】在代码最前面强制加上关闭警告和静默加载包的指令
-    # 【生信环境增强型补丁】
+    # 注入 R 代码前的环境配置，确保稳定运行
     r_prefix = (
         '# 1. 强制使用清华镜像源，防止 Agent 抽风自动安装包时失败\n'
         'options(repos = c(CRAN = "https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))\n'
@@ -75,7 +72,7 @@ def run_r_analysis(r_code: str):
         f.write(injected_code)
     
     try:
-        # 【优化】即使 returncode != 0，如果是警告信息也尝试返回 stdout
+        # 即使 returncode != 0，如果是警告信息也尝试返回 stdout
         result = subprocess.run(["Rscript", script_path], capture_output=True, text=True, timeout=120)
         
         if os.path.exists(script_path):
@@ -88,6 +85,7 @@ def run_r_analysis(r_code: str):
             return json.dumps({"status": "error", "error_message": result.stderr})
     except Exception as e:
         return json.dumps({"status": "error", "error_message": f"R 脚本出错: {str(e)}"})
+
 
 def load_large_bio_data(file_path: str):
     """
@@ -147,16 +145,12 @@ def load_large_bio_data(file_path: str):
     except Exception as e:
         return f"❌ 读取失败。原因: {str(e)}。"
 
-# ==========================================
-# 2. 统一对外暴露的配置 (给 Agent 使用)
-# ==========================================
-
-# 【关键】在这里必须把所有函数都注册进去！
+# 统一对外暴露的配置 
 AVAILABLE_FUNCTIONS = {
     "calculate_gc_content": calculate_gc_content,
     "read_csv_data": read_csv_data,
     "run_r_analysis": run_r_analysis,
-    "load_large_bio_data": load_large_bio_data  # 刚才你漏了这一行！
+    "load_large_bio_data": load_large_bio_data
 }
 
 # 存放给大模型看的 Schema
