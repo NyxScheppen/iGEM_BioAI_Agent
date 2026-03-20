@@ -1,0 +1,5 @@
+"X","disease","age","sex","merge"
+"sample1","Tumor",72,"F","merge!"
+"sample2","Tumor",68,"M","merge!!"
+"sample3","Control",70,"F","merge!!!"
+"sample4","Tumor",91,"M","merge!!!!"

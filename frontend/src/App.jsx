@@ -5,7 +5,7 @@ import './App.css'
 function App() {
   const [userInput, setUserInput] = useState('')
   const [messages, setMessages] = useState([
-    { role: 'ai', content: '你好！我是你的 iGEM 专属 Agent。我已经准备好处理你的实验数据了。' }
+    { role: 'ai', content: '你好！我是你的 生物信息学 专属 Agent。我已经准备好处理你的实验数据了。' }
   ])
   const [results, setResults] = useState([
     { type: 'text', title: '🧬 实验室状态', content: '请在左侧上传 .csv 或 .txt 文件开始分析。' }
@@ -44,16 +44,53 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, isLoading])
 
-  const updateWorkbench = (aiReply) => {
-    // 匹配 Markdown 格式的图片: ![alt](url)
-    const imgRegex = /!\[.*?\]\((.*?)\)/;
-    const match = aiReply.match(imgRegex);
-    if (match) {
-      setResults(prev => [{
-        type: 'plot',
-        title: '📊 分析图表 - ' + new Date().toLocaleTimeString(),
-        content: match[1]
-      }, ...prev]);
+const updateWorkbench = (aiReply) => {   
+    // 1. 增强版正则：既匹配 ![alt](url)，也匹配普通的 http...png 链接
+    const markdownImgRegex = /!\[.*?\]\((.*?)\)/g;
+    const plainUrlRegex = /http:\/\/127\.0\.0\.1:8000\/files\/[a-zA-Z0-9_.-]+\.(png|jpg|jpeg|svg)/gi;
+    
+    const newPlots = [];
+    const foundUrls = new Set(); // 用于去重
+
+    // 匹配 Markdown 格式
+    let match;
+    while ((match = markdownImgRegex.exec(aiReply)) !== null) {
+      foundUrls.add(match[1]);
+    }
+
+    // 匹配纯文本 URL 格式
+    let urlMatch;
+    while ((urlMatch = plainUrlRegex.exec(aiReply)) !== null) {
+      foundUrls.add(urlMatch[0]);
+    }
+
+    // 处理所有找到的 URL
+    foundUrls.forEach(url => {
+      let finalUrl = url;
+
+      // 核心修正：确保路径指向 /files/ 而不是 /workspace/
+      if (!finalUrl.startsWith('http')) {
+        const fileName = finalUrl.split('/').pop();
+        finalUrl = `http://127.0.0.1:8000/files/${fileName}`; // 这里改成了 files
+      } else {
+        // 如果 Agent 吐出的 URL 包含 workspace，也强制修正为 files
+        finalUrl = finalUrl.replace('/workspace/', '/files/');
+      }
+
+      newPlots.push({   
+        type: 'plot',   
+        title: '📊 生物信息分析图表',   
+        content: `${finalUrl}?t=${new Date().getTime()}` // 加个时间戳防止浏览器缓存不刷新
+      });
+    });
+
+    if (newPlots.length > 0) {
+      // 过滤掉已经存在的图片，避免重复堆叠
+      setResults(prev => {
+        const existingUrls = prev.map(p => p.content.split('?')[0]);
+        const uniqueNewPlots = newPlots.filter(p => !existingUrls.includes(p.content.split('?')[0]));
+        return [...uniqueNewPlots, ...prev];
+      });
     }
   }
 
@@ -79,7 +116,7 @@ function App() {
     if (isLoading) return
 
     // 1. 构造带文件标记的内容
-    const displayContent = attachedFile ? `📎 [文件:${attachedFile}] ${userInput}` : userInput
+    const displayContent = attachedFile ? `发送的文件：[文件:${attachedFile}] ${userInput}` : userInput
     const newMessage = { role: 'user', content: displayContent }
     
     // 2. 先更新本地 UI
@@ -111,7 +148,7 @@ function App() {
           <div className="chat-header">
              <div style={{fontSize:'24px', background:'#e8f5e9', padding:'8px', borderRadius:'12px'}}>🧬</div>
              <div className="header-info">
-               <h2>iGEM Agent Hub</h2>
+               <h2>生物信息学 Agent Hub</h2>
                <p>● ONLINE</p>
              </div>
           </div>
