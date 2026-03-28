@@ -12,7 +12,7 @@ async def upload_file(
     db: Session = Depends(get_db)
 ):
     """
-    保持原接口不变：
+    接口：
     POST /api/upload
 
     新增可选参数 session_id，前端不传也能跑

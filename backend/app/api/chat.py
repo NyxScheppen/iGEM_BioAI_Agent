@@ -9,10 +9,10 @@ router = APIRouter()
 @router.post("/api/chat")
 async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
     """
-    保持原接口不变：
+    接口：
     POST /api/chat
 
-    请求体仍支持：
+    请求体支持：
     {
       "messages": [...]
     }

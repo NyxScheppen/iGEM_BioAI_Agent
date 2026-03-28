@@ -7,7 +7,7 @@ from app.core.paths import UPLOAD_DIR
 
 @register_tool(
     name="read_csv_data",
-    description="读取上传目录中的 CSV 文件，返回表头、前3行和形状",
+    description="读取上传目录中的 CSV 文件，返回表头、前3行和形状（仅支持 CSV）",
     parameters={
         "type": "object",
         "properties": {
@@ -117,7 +117,60 @@ def load_large_bio_data(file_path: str):
         else:
             summary.append("⚠️ 未检测到明确分组信息，请尝试根据样本标题分组。")
 
-        return "\n".join(summary).replace('"', "'")
-
+        return json.dumps({
+            "status": "success",
+            "file_path": file_path,
+            "summary": summary,
+            "sample_titles": metadata["titles"][:10],
+            "characteristics_preview": clean_characteristics[:10],
+            "preview_shape": list(df_preview.shape),
+            "preview_columns": df_preview.columns.tolist()[:10]
+        }, ensure_ascii=False)
     except Exception as e:
         return f"❌ 读取失败: {str(e)}"
+    
+@register_tool(
+    name="preview_table_file",
+    description="预览上传目录中的表格文件（csv/tsv/txt/xlsx），返回列名、前几行和形状。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string"},
+            "nrows": {"type": "integer", "default": 5}
+        },
+        "required": ["file_path"]
+    }
+)
+def preview_table_file(file_path: str, nrows: int = 5):
+    import os
+    import json
+    import pandas as pd
+
+    safe_path = os.path.join(UPLOAD_DIR, os.path.basename(file_path))
+    if not os.path.exists(safe_path):
+        return json.dumps({"status": "error", "message": f"文件不存在: {file_path}"}, ensure_ascii=False)
+
+    ext = os.path.splitext(safe_path)[1].lower()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(safe_path)
+        elif ext == ".tsv":
+            df = pd.read_csv(safe_path, sep="\t")
+        elif ext == ".txt":
+            try:
+                df = pd.read_csv(safe_path, sep="\t")
+            except Exception:
+                df = pd.read_csv(safe_path)
+        elif ext in [".xlsx", ".xls"]:
+            df = pd.read_excel(safe_path)
+        else:
+            return json.dumps({"status": "error", "message": f"暂不支持的格式: {ext}"}, ensure_ascii=False)
+
+        return json.dumps({
+            "status": "success",
+            "columns": df.columns.tolist(),
+            "shape": list(df.shape),
+            "preview": df.head(int(nrows)).to_dict(orient="records")
+        }, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)

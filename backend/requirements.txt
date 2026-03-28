@@ -6,3 +6,8 @@ sqlalchemy
 python-dotenv
 openai
 pandas
+requests
+numpy
+scikit-learn
+matplotlib
+seaborn

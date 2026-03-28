@@ -5,58 +5,82 @@ from pathlib import Path
 from app.agent.tool_registry import register_tool
 from app.core.paths import TEMP_DIR, UPLOAD_DIR, GENERATED_DIR
 
+def _list_generated_files(base_dir: Path):
+    files = []
+    if not base_dir.exists():
+        return files
+
+    for p in base_dir.rglob("*"):
+        if p.is_file():
+            rel = p.relative_to(GENERATED_DIR).as_posix()
+            files.append({
+                "name": p.name,
+                "relative_path": f"generated/{rel}",
+                "url": f"/files/generated/{rel}",
+                "size_bytes": p.stat().st_size
+            })
+    return files
+
 @register_tool(
     name="run_r_analysis",
-    description="执行 R 代码进行生信分析。R 当前工作目录已经是 GENERATED_DIR。保存输出文件时不要再手动创建或拼接 'generated/' 前缀。若需要子目录，请使用 ensure_output_dir('subdir') 并写入 file.path(out_dir, 'xxx.png')。",
+    description="执行 R 代码进行生信分析。系统会自动创建本次任务输出目录，并返回生成文件列表。",
     parameters={
         "type": "object",
         "properties": {
             "r_code": {
                 "type": "string",
                 "description": "纯 R 代码"
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "超时时间（秒），默认 300",
+                "default": 300
+            },
+            "job_subdir": {
+                "type": "string",
+                "description": "可选，输出子目录名；为空时自动生成 job_id",
+                "default": ""
             }
         },
         "required": ["r_code"]
     }
 )
-def run_r_analysis(r_code: str):
-    """
-    核心工具：把 Agent 生成的 R 代码写成脚本，用 Rscript 执行
-    """
-    job_id = str(uuid.uuid4())[:8]
+def run_r_analysis(r_code: str, timeout: int = 300, job_subdir: str = ""):
+    job_id = job_subdir.strip() if job_subdir and job_subdir.strip() else str(uuid.uuid4())[:8]
+
     script_name = f"temp_task_{job_id}.R"
     script_path = Path(TEMP_DIR) / script_name
 
     Path(GENERATED_DIR).mkdir(parents=True, exist_ok=True)
+    job_dir = Path(GENERATED_DIR) / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
 
     r_prefix = f"""
 library(data.table)
 
 UPLOAD_DIR <- "{Path(UPLOAD_DIR).as_posix()}"
 GENERATED_DIR <- "{Path(GENERATED_DIR).as_posix()}"
+JOB_DIR <- "{job_dir.as_posix()}"
 
-cat("注意：当前工作目录已经是 GENERATED_DIR。\n")
-cat("保存结果时不要再写 generated/xxx，也不要再 dir.create('generated')。\n")
-cat("如需子目录，请使用 ensure_output_dir('subdir')。\n")
-
-# 所有输出默认进入 generated
 dir.create(GENERATED_DIR, recursive = TRUE, showWarnings = FALSE)
-setwd(GENERATED_DIR)
+dir.create(JOB_DIR, recursive = TRUE, showWarnings = FALSE)
+
+setwd(JOB_DIR)
 
 smart_read <- function(file_path) {{
-  # 如果传入的是纯文件名，则自动补到 uploads
   if (!grepl("^/", file_path) && !grepl("^[A-Za-z]:", file_path)) {{
     file_path <- file.path(UPLOAD_DIR, file_path)
   }}
+  if (!file.exists(file_path)) stop(paste("文件不存在:", file_path))
   return(file_path)
 }}
 
 ensure_output_dir <- function(subdir = NULL) {{
   if (is.null(subdir) || subdir == "") {{
-    dir.create(GENERATED_DIR, recursive = TRUE, showWarnings = FALSE)
-    return(GENERATED_DIR)
+    dir.create(JOB_DIR, recursive = TRUE, showWarnings = FALSE)
+    return(JOB_DIR)
   }}
-  out_dir <- file.path(GENERATED_DIR, subdir)
+  out_dir <- file.path(JOB_DIR, subdir)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   return(out_dir)
 }}
@@ -64,6 +88,7 @@ ensure_output_dir <- function(subdir = NULL) {{
 cat("R 环境已准备完成\\n")
 cat(paste("UPLOAD_DIR =", UPLOAD_DIR, "\\n"))
 cat(paste("GENERATED_DIR =", GENERATED_DIR, "\\n"))
+cat(paste("JOB_DIR =", JOB_DIR, "\\n"))
 """
 
     injected_code = r_prefix + "\n" + r_code
@@ -76,24 +101,35 @@ cat(paste("GENERATED_DIR =", GENERATED_DIR, "\\n"))
             ["Rscript", str(script_path)],
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=int(timeout)
         )
 
-        if result.returncode == 0 or result.stdout:
+        output_files = _list_generated_files(job_dir)
+
+        if result.returncode == 0:
             return json.dumps({
                 "status": "success",
+                "job_id": job_id,
+                "job_dir": f"generated/{job_id}",
                 "stdout": result.stdout,
-                "stderr": result.stderr
+                "stderr": result.stderr,
+                "output_files": output_files
             }, ensure_ascii=False)
-        else:
-            return json.dumps({
-                "status": "error",
-                "error_message": result.stderr
-            }, ensure_ascii=False)
+
+        return json.dumps({
+            "status": "error",
+            "job_id": job_id,
+            "job_dir": f"generated/{job_id}",
+            "error_message": result.stderr or "R 脚本执行失败",
+            "stdout": result.stdout,
+            "output_files": output_files
+        }, ensure_ascii=False)
 
     except Exception as e:
         return json.dumps({
             "status": "error",
+            "job_id": job_id,
+            "job_dir": f"generated/{job_id}",
             "error_message": f"R 脚本执行失败: {str(e)}"
         }, ensure_ascii=False)
 

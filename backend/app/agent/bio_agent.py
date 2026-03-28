@@ -4,7 +4,7 @@ from app.core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL_NAME
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.tool_registry import TOOL_REGISTRY, TOOLS_SCHEMA
 
-# 这个导入非常重要：会触发 tools 下所有模块的工具注册
+# 触发 tools 下所有模块的工具注册
 from app import tools  # noqa
 
 client = OpenAI(
@@ -22,7 +22,7 @@ async def run_bio_agent(history_messages: list) -> str:
     """
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history_messages
 
-    for _ in range(15):
+    for _ in range(25):
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=messages,
