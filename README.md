@@ -67,12 +67,12 @@ BioAgent Hub 是一个为生物信息学分析与合成生物学设计的智能 
 ### AI / Agent
 - DeepSeek API（OpenAI 兼容调用方式）
 - Tool Calling / Function Calling
-- 自定义 Tool Registry
 
 ### 数据与分析
 - Python: pandas
 - R: data.table / 生信分析相关 R 包
-- subprocess 调用 Rscript
+
+（待补充）
 
 ---
 
@@ -162,7 +162,58 @@ backend/app/
 
 
 ---
+### 下载指南
+**注：最好在linux或者wsl2环境下运行，因为作者用的是wsl2**
 
+1. 环境要求
+ 
+请确保本机已安装以下工具：
+ 
+- Python 3.9 及以上
+- pip
+- R 4.2 及以上
+- Rscript
+- Bash（Linux / macOS 默认可用，Windows 推荐使用 Git Bash 或 WSL2）
+ 
+可先用以下命令检查版本：
+ 
+```bash
+python --version
+pip --version
+Rscript --version
+```
+
+2. 环境依赖下载
+在项目根目录下执行：
+```bash
+bash scripts/setup_all.sh
+```
+当看到以下信息时，即安装成功
+```bash
+======================================
+ BioAI Agent environment setup start
+======================================
+...
+======================================
+ Setup completed successfully
+======================================
+```
+
+3. 全工具追求者
+如果想使用完整的工具，请在根目录下运行以下代码
+```bash
+cd backend
+pip install -r requirements.txt
+cd ..
+```
+要等很长，很长，很长的一段时间，建议冲一杯咖啡坐在屏幕前，给家人打个电话，或者做点比看着终端发呆更有意义的事情
+4. 运行
+打开终端，在项目根目录下，运行
+```bash
+npm run dev
+```
+
+---
 ## 开发日志
 ### 2026/3/19
 项目启动，搭建好了前端网页，连接了ai（暂时用deepseek）
@@ -179,3 +230,19 @@ backend/app/
 ### 2026/3/23
 新增了助手模块
 
+新增了不少工具
+
+### 2026/3/26
+修改了ai总是不把生成文件放到该放的地方的bug
+
+修改了ai总是想要再生成一个不存在的文件夹的bug
+
+### 2026/3/27
+整理了tools里的函数，现在看起来更规整了
+
+可读性++
+
+### 2026/3/28
+修改了package.json，现在一个命令就可以打开前后端了
+
+给小动物们写了更多的故事
